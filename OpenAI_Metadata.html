@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenAI Metadata</title>
+    <!-- Include jQuery library -->
+	<script src="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js"></script>
+	
+    <!-- Include the Custom Elements API-->
+    <script src="https://app.kontent.ai/js-api/custom-element.js"></script>
+	<link rel="stylesheet" href="../custom-element.css" />
+
+    <!-- Custom element CSS styles -->
+    <style>
+		/* We recommended you always set margin to zero to avoid problems when displaying the element in UI */
+		@import url(https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700,400italic,700italic);
+		html{
+		  font-family:sans-serif;
+		  -ms-text-size-adjust:100%;
+		  -webkit-text-size-adjust:100%;
+		}
+		body {
+			margin: 10px;
+			overflow-y: hidden;
+			overflow-x: hidden;
+		}
+		
+		[contenteditable=true]:empty:before{
+			content: attr(placeholder);
+			color: #aaa;
+			display: block; /* For Firefox */
+		}
+		
+		.editor {
+			border-bottom: 1px dashed #555;
+		}
+
+		.disabled_overlay {
+			position: fixed;
+			background-color: #777;
+			z-index: 10;
+			cursor: not-allowed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			opacity: 0.1;
+		}
+		
+		button {
+			cursor: pointer;
+			margin-bottom: 10px;
+			margin-right: 10px;
+			position: relative;
+			touch-action: manipulation;
+			user-select: none;
+			white-space: nowrap;
+			height: 40px;
+			font-family: Inter, sans-serif;
+			font-size: 12px;
+			font-weight: 700;
+			line-height: 18px;
+			letter-spacing: 0.1ch;
+			text-transform: uppercase;
+			border-radius: 5000px;
+			outline: none;
+			transition: background-color 250ms cubic-bezier(0.23, 1, 0.32, 1) 50ms, color, border-color;
+			border-width: 1px;
+			border-style: solid;
+			padding: 0px 23px;
+			background: transparent;
+			border-color: rgb(168, 168, 168);
+		}
+		
+		button:hover {
+			transition: background-color 250ms cubic-bezier(0.23, 1, 0.32, 1) 50ms, color, border-color;
+			background: padding-box rgb(175, 197, 233);
+			border-color: rgb(111, 111, 111);
+		}
+		.overlay {
+			position: fixed;
+			background-color: #d3dff3;
+			z-index: 10;
+			cursor: not-allowed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			opacity: 0.7;
+			display:none;
+			font-size: 2em;
+			text-align: center;
+			line-height: 2em;
+			animation: blinker 2s linear infinite;
+		}
+
+		@keyframes blinker {
+		  50% {
+			opacity: 0.3;
+		  }
+		}
+		
+		.grid {
+			display: flex;
+			margin-bottom: 20px;
+		}
+		
+		.label {
+			width: 150px;
+			min-width: 150px;
+			font-weight: bold;
+		}
+		
+		#thumbnailurl {
+			display: none;
+		}
+		
+		#deletethumbnail {
+			font-size: 2em;
+			line-height: 0.5em;
+		}
+		
+		#deletethumbnail a:hover {
+			text-decoration: none;
+		}
+    </style>
+</head>
+<body>
+	<div class="overlay">Generating</div>
+	<button id="generate">Generate metadata</button>
+	
+	<div class="grid">
+		<div class="label">Summary:</div><div id="summary" class="editor" contenteditable="true" placeholder="Enter summary" role="textbox" spellcheck="false" style="outline: none; user-select: text; overflow-wrap: break-word;"></div>
+	</div>
+	<div class="grid">
+		<div class="label">Keywords:</div><div id="keywords" class="editor" contenteditable="true" placeholder="Enter keywords" role="textbox" spellcheck="false" style="outline: none; user-select: text; overflow-wrap: break-word;"></div>
+	</div>
+	<div class="grid">
+		<div class="label">Thumbnail:</div><div id="thumbnail"></div><div id="deletethumbnail"></div><div id="thumbnailurl"></div>
+	</div>
+	
+	<div class="disabled_overlay"></div>
+<script>	
+
+	var service = '';
+	var source = '';
+	var requests = 0;
+
+	function updateDisabled(disabled) {
+		if (disabled) {
+			$('.disabled_overlay').show();
+		}
+		else {
+			$('.disabled_overlay').hide();
+		}
+	}
+	
+	function setup(value) {	
+		console.log(value);
+		enterValues(value);
+		
+		$('body').on('input', '[contenteditable]', function() {	
+			saveValue();
+			updateSize();
+		});
+		
+		$('#generate').click(function() {
+			CustomElement.getElementValue(source, (value) => {
+				if (value.length > 200) {
+				
+					$('.overlay').show();
+					requests = 0;
+					
+					$.post(service, { "type": "summary", "input": value })
+					  .done(function( data ) {
+					    requests++;
+						
+						console.log(data);
+						processSummarayData(JSON.parse(data));
+					});	
+					
+					$.post(service, { "type": "keywords", "input": value })
+					  .done(function( data ) {	
+						requests++;
+						
+						console.log(data);
+						processKeywordsData(JSON.parse(data));
+					});	
+					
+				}
+				else {
+					showError("Source text is too short - it can be used as summer by itself.");
+				}
+			});
+		});
+	}
+  
+	function updateSize() {
+		var height = 100;
+		try {
+			height = parseInt($("html").height());		
+		} catch (err) {
+			console.error(err);
+		}
+		CustomElement.setHeight(height);
+		setTimeout(updateSize, 1000);
+	}
+  
+	function initCustomElement() {
+		try {
+			CustomElement.init((element, _context) => {
+				if (element.config) {
+					if (element.config.service) {
+						service = element.config.service;
+					}
+					else {
+						showError("Missing service url");
+					}					
+					if (element.config.source) {
+						source = element.config.source;
+					}
+					else {
+						showError("Missing source 'Rich text' element codename");
+					}
+				}
+				
+				if (element.value) {								
+					setup(element.value);		
+				}	
+				else {
+					setup("");
+				}
+				
+				updateDisabled(element.disabled);
+				updateSize();
+			});
+			CustomElement.onDisabledChanged(updateDisabled);
+		} catch (err) {
+			console.error(err);
+			updateDisabled(true);
+		}
+	}
+  
+	initCustomElement();	
+
+	function returnValue(codename) {
+		CustomElement.getElementValue(codename, (value) => {
+			return value;
+		});
+		return "";
+	}
+		
+	function showError(message) {
+		$('#element').hide();
+		$('#status').css("color","#ef5350");
+		$('#status').addClass("item-status--failed");						
+		$('#status').text(message);		
+		throw new Error(message);
+	}
+		
+	function enterValues(value) {
+		if (value) {
+			var values = JSON.parse(value);
+			$('#summary').html(values.summary);
+			$('#keywords').html(values.keywords);
+			loadThumbnail(values.thumbnail);
+		}
+	}
+		
+	function saveValue() {
+		CustomElement.setValue('{"summary":'+JSON.stringify($('#summary').html())+',"keywords":'+JSON.stringify($('#keywords').html())+',"thumbnail":'+JSON.stringify($('#thumbnailurl').html())+"}");
+	}
+		
+	function processSummarayData(data) {
+		$('#summary').html(data.choices[0].text);
+		checkFinished();
+	}
+		
+	function processKeywordsData(data) {
+		var keywords = processKeywords(data.choices[0].text);
+		$('#keywords').html(keywords);	
+		$.post(service, { "type": "thumbnail", "input": keywords })
+		  .done(function( data ) {	
+			requests++;
+			
+			console.log(data);
+			processThumbnailData(JSON.parse(data));
+		});	
+	}
+		
+	function processThumbnailData(data) {	
+		loadThumbnail(data.data[0].url);
+		checkFinished();
+	}
+	
+	function loadThumbnail(url) {
+		$('#thumbnail').html("<img class='thumbnail' src='"+url+"'>");
+		$('#thumbnailurl').html(url);
+		$('#deletethumbnail').html("<a id='removeImage' title='remove thumbnail'>×</a>");
+		$('#deletethumbnail').click(function() {
+			$('#thumbnail').html("");
+			$('#deletethumbnail').html("");
+			$('#thumbnailurl').html("");
+			saveValue();
+		});
+	}
+		
+	function checkFinished() {
+		updateSize();
+		if (requests == 3) {
+			$('.overlay').hide();
+			saveValue();
+		}
+	}
+		
+	function processKeywords(keywords) {
+		return keywords.replace("1.","").replace("2.",",").replace("3.",",").replace("4.",",").replace("5.",",").replace("/\n/g","")
+	}			
+
+</script>
+
+</body>
+</html>
